@@ -69,7 +69,7 @@ start Throttle{..} = withSocketsDo $ do
           sClose a
           sClose b
         bytes = 4096
-        delay = round $ (1000 * 1000) / (speed*4)
+        delay = round $ (1000 * 1000) / (speed/4)
 
 -- | Create a new console logger.
 newTeller :: Bool -> IO (Maybe (Chan String))
