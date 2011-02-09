@@ -1,5 +1,5 @@
 Name:                throttle
-Version:             0.1
+Version:             0.1.1
 Synopsis:            Throttle TCP/IPv4 connections to a given server.
 Description:         Sometimes you want to pretend you're on a
                      very slow connection to see how your program
