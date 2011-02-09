@@ -4,7 +4,7 @@ module Main where
 
 import Control.Concurrent      (forkIO,threadDelay)
 import Control.Concurrent.Chan (Chan,writeChan,newChan,getChanContents)
-import Control.Monad           (forever)
+import Control.Monad           (forever, when)
 import Data.Data               (Data,Typeable)
 import Network                 (PortID(PortNumber),listenOn)
 import Network.Socket hiding (listen,recv,send)
@@ -22,7 +22,7 @@ data Throttle = Throttle
   
 options :: Throttle
 options = Throttle 
-  { speed   = def &= opt (1.6::Float) &= help "Speed in KB/s, e.g. 1.6."
+  { speed   = def &= opt (1.6::Float) &= help "Speed in KB/s, e.g. 1.6 (0 for no limit)"
   , host    = "127.0.0.1"
   , port    = 80
   , listen  = 8000
@@ -62,7 +62,7 @@ start Throttle{..} = withSocketsDo $ do
           ignore $ forkIO $ flip catch (close c from to) $ forever $ do
             msg <- recv from bytes
             ignore $ send to msg
-            threadDelay $ delay
+            when (speed > 0) $ threadDelay delay
           return ()
         close c a b _ = do
           tell c $ [show a,":",show b,": Closing connections."]
