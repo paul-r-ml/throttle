@@ -4,13 +4,14 @@ module Main where
 
 import Control.Concurrent      (forkIO,threadDelay)
 import Control.Concurrent.Chan (Chan,writeChan,newChan,getChanContents)
-import Control.Monad           (forever, when)
+import Control.Monad           (forever, unless)
 import Data.Data               (Data,Typeable)
 import Network                 (PortID(PortNumber),listenOn)
 import Network.Socket hiding (listen,recv,send)
-import Network.Socket.ByteString (recv,send)
+import Network.Socket.ByteString (recv,sendAll)
 import System.Console.CmdArgs  (cmdArgs,(&=),help,summary,def,opt)
 import System.Posix            (Handler(Ignore),installHandler,sigPIPE)
+import qualified Data.ByteString as B
 
 data Throttle = Throttle
   { listen  :: Int
@@ -34,7 +35,7 @@ options = Throttle
 
 main :: IO ()
 main = do
-  ignore $ installHandler sigPIPE Ignore Nothing
+  _ <- installHandler sigPIPE Ignore Nothing
   cmdArgs options >>= start
 
 start :: Throttle -> IO ()
@@ -44,11 +45,11 @@ start Throttle{..} = withSocketsDo $ do
   forever $ do
     (client,_) <- accept listener
     tell c $ [show client,": New connection on port ",show port]
-    ignore $ forkIO $ do
+    _ <- forkIO $ do
       server <- connectToServer
       tell c $ [show client,": ",show server,": Connected to server at "
-               ,host,":",show port]
-      let proxyTo = proxyToWithChan c
+               ,host,":",show port, " with delay ", show delay]
+      let proxyTo f t = forkIO (proxyToWithChan c f t) >> return ()
       client `proxyTo` server
       server `proxyTo` client
     return ()
@@ -58,25 +59,35 @@ start Throttle{..} = withSocketsDo $ do
           server <- socket (addrFamily serveraddr) Stream defaultProtocol
           connect server (addrAddress serveraddr)
           return server
-        proxyToWithChan c from to = do
-          ignore $ forkIO $ flip catch (close c from to) $ forever $ do
-            msg <- recv from bytes
-            ignore $ send to msg
-            when (speed > 0) $ threadDelay delay
+
+        proxyToWithChan c from to = do 
+          mapData from to
+          close c from to
           return ()
-        close c a b _ = do
+
+        mapData from to = do
+          msg <- recv from bufferSize
+          unless (B.null msg) $ do
+            _ <- sendAll to msg
+            unless (speed == 0) $ threadDelay delay
+            mapData from to
+
+        bufferSize = 1024 * 4 :: Int
+        delay = round $ (fromIntegral $ (1000*1000) * bufferSize) / (speed * 1024)
+                    
+
+        close c a b = do
           tell c $ [show a,":",show b,": Closing connections."]
           sClose a
           sClose b
-        bytes = 4096
-        delay = round $ (1000 * 1000) / (speed/4)
+
 
 -- | Create a new console logger.
 newTeller :: Bool -> IO (Maybe (Chan String))
 newTeller False = return Nothing
 newTeller True = do
   c <- newChan
-  ignore $ forkIO $ do
+  _ <- forkIO $ do
     getChanContents c >>= mapM_ putStrLn
   return $ Just c
 
@@ -84,7 +95,3 @@ newTeller True = do
 tell :: Maybe (Chan String) -> [String] -> IO ()
 tell (Just c) = writeChan c . concat
 tell Nothing  = const $ return ()
-
--- | Run an action and ignore the result.
-ignore :: Monad m => m a -> m ()
-ignore m = m >> return ()
